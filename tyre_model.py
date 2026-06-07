@@ -147,15 +147,24 @@ def fit_compound_degradation(laps_df: pd.DataFrame, compound: str) -> dict:
 
     slope, intercept, r_value, p_value, std_err = linregress(x, y)
 
-    # Base pace = average of each driver's median pace on this compound
-    # Gives a realistic absolute lap time anchor for predictions
-    base_pace = comp_laps.groupby('Driver')['CorrectedLapTime'].median().mean()
+    # Base pace uses the 25th percentile of RAW lap times across all drivers.
+    #
+    # Why not the median?
+    # The field median is dragged up by slow cars (Williams, Sauber etc.).
+    # If we anchor predictions to the median, a simulated "race" comes out
+    # 7-8s/lap too slow vs what the top drivers actually do — which compounds
+    # to a ~400-500s error over a race distance.
+    #
+    # The 25th percentile captures the pace of the faster half of the grid,
+    # giving realistic lap time predictions for front/midfield runners.
+    # This is the right anchor for a strategy simulator.
+    raw_base_pace = comp_laps['LapTime'].quantile(0.25)
 
     return {
         'compound':    compound,
-        'base_pace':   round(base_pace, 3),    # realistic median lap time on this compound
-        'deg_per_lap': round(slope, 4),         # seconds slower per lap of tyre age
-        'r_squared':   round(r_value ** 2, 3),  # fit quality (1.0 = perfect)
+        'base_pace':   round(raw_base_pace, 3), # 25th pct raw lap time — realistic fast-end anchor
+        'deg_per_lap': round(slope, 4),          # seconds slower per lap of tyre age
+        'r_squared':   round(r_value ** 2, 3),   # fit quality (1.0 = perfect)
         'sample_size': len(comp_laps)
     }
 
