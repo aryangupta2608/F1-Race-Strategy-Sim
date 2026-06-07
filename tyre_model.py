@@ -65,12 +65,15 @@ def apply_fuel_correction(laps_df: pd.DataFrame, total_laps: int) -> pd.DataFram
     """
     df = laps_df.copy()
 
-    # How many laps of fuel remain at each lap number
-    laps_remaining = total_laps - df['LapNumber']
+    # How many laps of fuel have been burned by this lap
+    laps_elapsed = df['LapNumber']
 
-    # The car is artificially slower early in the race due to fuel weight.
-    # We add that time back to make all laps comparable.
-    df['CorrectedLapTime'] = df['LapTime'] + (laps_remaining * FUEL_EFFECT_PER_LAP)
+    # Early laps are slower because the car is heavy with fuel.
+    # As fuel burns, the car gets lighter and faster.
+    # We SUBTRACT the fuel benefit to make late-race laps comparable to early laps.
+    # i.e. we artificially make the car "heavy" again on every lap,
+    # so that any remaining lap time increase is purely tyre deg.
+    df['CorrectedLapTime'] = df['LapTime'] + (laps_elapsed * FUEL_EFFECT_PER_LAP)
 
     return df
 
@@ -96,20 +99,12 @@ def fit_compound_degradation(laps_df: pd.DataFrame, compound: str) -> dict:
         laps_df  — fuel-corrected DataFrame (from apply_fuel_correction)
         compound — 'SOFT', 'MEDIUM', or 'HARD'
     """
-    # Filter to just this compound, slick tyres only, minimum stint length
+    # Filter to just this compound
     comp_laps = laps_df[
         (laps_df['Compound'] == compound) &
         (laps_df['TyreLife'] >= 1)
     ].copy()
 
-    # Remove obvious outliers — laps more than 3 seconds off the median
-    # (these are usually caused by traffic, yellow flags, or mistakes)
-    median_time = comp_laps['CorrectedLapTime'].median()
-    comp_laps = comp_laps[
-        abs(comp_laps['CorrectedLapTime'] - median_time) < 3.0
-    ]
-
-    # Need enough data to fit a reliable line
     if len(comp_laps) < MIN_STINT_LAPS:
         return {
             'compound':    compound,
@@ -120,17 +115,47 @@ def fit_compound_degradation(laps_df: pd.DataFrame, compound: str) -> dict:
             'error':       f'Not enough data (only {len(comp_laps)} laps)'
         }
 
-    # Run linear regression: TyreLife (x) vs CorrectedLapTime (y)
+    # ── KEY FIX: normalize each driver's laps relative to their own pace ──
+    # Problem: Mercedes laps at ~97s, Williams at ~101s. If we pool all
+    # drivers raw, the spread in car speed completely drowns out the small
+    # tyre degradation signal, giving us a near-zero R².
+    # Fix: for each driver, subtract their median lap time for this compound.
+    # Now every driver is on a "0 = their normal pace" scale,
+    # and we only measure the tyre age effect on top of that baseline.
+    comp_laps['NormalisedLapTime'] = comp_laps.groupby('Driver')['CorrectedLapTime'].transform(
+        lambda x: x - x.median()
+    )
+
+    # Remove outlier laps — more than 2.5s off each driver's own median
+    # (covers yellow flags, traffic, mistakes)
+    comp_laps = comp_laps[abs(comp_laps['NormalisedLapTime']) < 2.5]
+
+    if len(comp_laps) < MIN_STINT_LAPS:
+        return {
+            'compound':    compound,
+            'base_pace':   None,
+            'deg_per_lap': None,
+            'r_squared':   None,
+            'sample_size': len(comp_laps),
+            'error':       f'Not enough data after normalisation (only {len(comp_laps)} laps)'
+        }
+
+    # Run linear regression: TyreLife (x) vs NormalisedLapTime (y)
+    # Slope = how many seconds slower per lap of tyre age (this is deg rate)
     x = comp_laps['TyreLife'].values
-    y = comp_laps['CorrectedLapTime'].values
+    y = comp_laps['NormalisedLapTime'].values
 
     slope, intercept, r_value, p_value, std_err = linregress(x, y)
 
+    # Base pace = average of each driver's median pace on this compound
+    # Gives a realistic absolute lap time anchor for predictions
+    base_pace = comp_laps.groupby('Driver')['CorrectedLapTime'].median().mean()
+
     return {
         'compound':    compound,
-        'base_pace':   round(intercept, 3),   # predicted lap time at TyreLife=0
-        'deg_per_lap': round(slope, 4),        # seconds slower per lap
-        'r_squared':   round(r_value ** 2, 3), # fit quality (1.0 = perfect)
+        'base_pace':   round(base_pace, 3),    # realistic median lap time on this compound
+        'deg_per_lap': round(slope, 4),         # seconds slower per lap of tyre age
+        'r_squared':   round(r_value ** 2, 3),  # fit quality (1.0 = perfect)
         'sample_size': len(comp_laps)
     }
 
@@ -210,7 +235,7 @@ def predict_lap_time(model: dict, compound: str, tyre_age: int) -> float:
     if comp_data is None or comp_data['deg_per_lap'] is None:
         raise ValueError(f"No degradation data available for {compound}")
 
-    predicted = comp_data['base_pace'] + (comp_data['deg_per_lap'] * tyre_age)
+    predicted = comp_data["base_pace"] + (comp_data["deg_per_lap"] * (tyre_age - 1))
     return round(predicted, 3)
 
 
