@@ -194,9 +194,10 @@ with st.sidebar:
     st.markdown("---")
 
     # Year selector
+    current_year = 2026  # update this each season
     year = st.selectbox(
         "Season",
-        options=[2024, 2023, 2022, 2021],
+        options=list(range(current_year, 2018, -1)),
         index=0
     )
 
@@ -230,7 +231,9 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 🔧 Simulation Settings")
-    total_laps = st.number_input("Total Race Laps", min_value=30, max_value=80, value=57)
+    # Auto-fetch total laps from the session data so it's always correct
+    total_laps = int(session.laps['LapNumber'].max())
+    st.markdown(f'**Race distance:** {total_laps} laps')
     max_stops  = st.selectbox("Max Pit Stops to Simulate", options=[1, 2], index=1)
 
     st.markdown("---")
@@ -278,6 +281,9 @@ else:
 
     st.markdown('<div class="section-header">Optimal Strategy</div>', unsafe_allow_html=True)
 
+    # Figure out which stop count actually won overall
+    winning_stops = best['n_stops']
+
     col1, col2, col3, col4 = st.columns(4)
 
     best_mins = int(best['total_time'] // 60)
@@ -286,7 +292,7 @@ else:
     with col1:
         st.metric("Best Race Time", f"{best_mins}m {best_secs:.1f}s")
     with col2:
-        st.metric("Pit Stops", best['n_stops'])
+        st.metric("Optimal Stop Count", f"{best['n_stops']}-stop")
     with col3:
         st.metric("Pit Loss Time", f"{best['pit_time']:.0f}s")
     with col4:
