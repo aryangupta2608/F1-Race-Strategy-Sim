@@ -284,6 +284,7 @@ def find_optimal_strategy(model: dict, total_laps: int, max_stops: int = 2, even
         best_by_stops   — fastest strategy for each stop count (1-stop, 2-stop)
         total_simulated — how many strategies were evaluated
     """
+    pit_loss = get_pit_loss_time(event_name)
     print(f"\n🏎️  Simulating strategies for {total_laps}-lap race...")
     print(f"   Max pit stops: {max_stops}")
 
