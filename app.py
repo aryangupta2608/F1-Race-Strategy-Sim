@@ -203,10 +203,9 @@ with st.sidebar:
     st.markdown("---")
 
     # Year selector
-    current_year = 2026  # update this each season
     year = st.selectbox(
         "Season",
-        options=list(range(current_year, 2018, -1)),
+        options=[2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018],
         index=0
     )
 
@@ -226,21 +225,19 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏎️ Driver Comparison")
 
-    # Load session (cached by year + round so switching races reloads correctly)
-    # We define this outside cache_resource so Streamlit Cloud handles it cleanly
-    @st.cache_resource(show_spinner=False)
-    def fetch_session(yr, rnd):
-        sess = fastf1.get_session(yr, rnd, "R")
-        sess.load(telemetry=False, weather=False, messages=False)
-        return sess
-
     with st.spinner(f"Loading {selected_race} — first load may take ~30s..."):
         try:
-            session = fetch_session(year, round_number)
-            # Verify laps loaded correctly before proceeding
-            _ = session.laps
+            # Load fresh each time — session objects are stateful and can't be
+            # safely cached with cache_resource across Streamlit reruns
+            session = fastf1.get_session(year, round_number, "R")
+            session.load(telemetry=False, weather=False, messages=False)
+            _ = session.laps  # verify data actually loaded
         except Exception as e:
-            st.error(f"Failed to load session data: {e}")
+            err_msg = str(e)
+            if "not been loaded" in err_msg or "DataNotLoaded" in err_msg:
+                st.warning(f"⚠️ FastF1 has no data for {selected_race} {year} yet. Try a different race or season.")
+            else:
+                st.warning(f"⚠️ Could not load session: {err_msg}")
             st.stop()
 
     drivers = get_driver_list(session)
