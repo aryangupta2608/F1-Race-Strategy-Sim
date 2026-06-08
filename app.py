@@ -198,6 +198,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ── CACHED DATA FUNCTIONS — defined at module level so cache works correctly ──
+# Streamlit requires cached functions to be at module level, not inside blocks.
+# Defining them inside 'with st.sidebar:' causes the cache to reset every rerun.
+
+@st.cache_data
+def fetch_schedule(yr):
+    return get_race_schedule(yr)
+
+@st.cache_resource(show_spinner=False)
+def fetch_session(yr, rnd):
+    sess = fastf1.get_session(yr, rnd, 'R')
+    sess.load(telemetry=False, weather=False, messages=False)
+    return sess
+
+
 # ── SIDEBAR — Race Selection ──────────────────────────────────────────────────
 
 with st.sidebar:
@@ -211,11 +226,6 @@ with st.sidebar:
         index=0
     )
 
-    # Load schedule for chosen year (cached so it's fast on re-runs)
-    @st.cache_data
-    def fetch_schedule(yr):
-        return get_race_schedule(yr)
-
     with st.spinner("Loading calendar..."):
         schedule = fetch_schedule(year)
 
@@ -227,27 +237,16 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏎️ Driver Comparison")
 
-    @st.cache_resource(show_spinner=False)
-    def fetch_session(yr, rnd):
-        """
-        Cached by (year, round) — only re-downloads when the race actually changes.
-        cache_resource persists the object across reruns of the same session,
-        so mid-download cancellations don't corrupt the state.
-        """
-        sess = fastf1.get_session(yr, rnd, "R")
-        sess.load(telemetry=False, weather=False, messages=False)
-        return sess
-
-    with st.spinner(f"Loading {selected_race} — first load may take ~30s..."):
+    with st.spinner(f"Loading {selected_race} — this may take ~30s..."):
         try:
             session = fetch_session(year, round_number)
-            _ = session.laps  # verify data actually loaded
+            _ = session.laps
         except Exception as e:
             err_msg = str(e)
             if "not been loaded" in err_msg or "DataNotLoaded" in err_msg:
-                st.warning(f"⚠️ FastF1 has no data for {selected_race} {year} yet. Try a different race or season.")
+                st.warning(f"⚠️ FastF1 has no data for {selected_race} {year} yet.")
             else:
-                st.warning(f"⚠️ Could not load session: {err_msg}")
+                st.warning(f"⚠️ Could not load {selected_race} {year}: {err_msg}")
             st.stop()
 
     drivers = get_driver_list(session)
