@@ -25,7 +25,7 @@ import os
 # On Streamlit Cloud, use a subfolder inside the repo so the cache persists
 # across reruns. Commit the f1_cache folder to GitHub after running locally
 # so the data is pre-loaded and doesn't need to be downloaded on the cloud.
-_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "f1_cache")
+_CACHE_DIR = "/tmp/f1_cache"
 os.makedirs(_CACHE_DIR, exist_ok=True)
 fastf1.Cache.enable_cache(_CACHE_DIR)
 
@@ -227,12 +227,20 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏎️ Driver Comparison")
 
+    @st.cache_resource(show_spinner=False)
+    def fetch_session(yr, rnd):
+        """
+        Cached by (year, round) — only re-downloads when the race actually changes.
+        cache_resource persists the object across reruns of the same session,
+        so mid-download cancellations don't corrupt the state.
+        """
+        sess = fastf1.get_session(yr, rnd, "R")
+        sess.load(telemetry=False, weather=False, messages=False)
+        return sess
+
     with st.spinner(f"Loading {selected_race} — first load may take ~30s..."):
         try:
-            # Load fresh each time — session objects are stateful and can't be
-            # safely cached with cache_resource across Streamlit reruns
-            session = fastf1.get_session(year, round_number, "R")
-            session.load(telemetry=False, weather=False, messages=False)
+            session = fetch_session(year, round_number)
             _ = session.laps  # verify data actually loaded
         except Exception as e:
             err_msg = str(e)
