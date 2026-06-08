@@ -21,9 +21,11 @@ warnings.filterwarnings('ignore')
 import fastf1
 import os
 
-# Set up FastF1 cache — uses a temp dir on Streamlit Cloud (no persistent disk)
-# This means first load per session downloads fresh data (~30s), which is expected
-_CACHE_DIR = "/tmp/f1_cache"
+# Set up FastF1 cache.
+# On Streamlit Cloud, use a subfolder inside the repo so the cache persists
+# across reruns. Commit the f1_cache folder to GitHub after running locally
+# so the data is pre-loaded and doesn't need to be downloaded on the cloud.
+_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "f1_cache")
 os.makedirs(_CACHE_DIR, exist_ok=True)
 fastf1.Cache.enable_cache(_CACHE_DIR)
 
